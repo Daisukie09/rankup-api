@@ -5,14 +5,14 @@ const GIFEncoder = require("gif-encoder-2");
 
 const app = express();
 
-// GIF backgrounds for rankup
-const gifUrls = [
-  "https://i.imgur.com/h6UbIMO.gif",
-  "https://i.imgur.com/vnnyLV8.gif",
-  "https://i.imgur.com/9Kq4ySX.gif",
-  "https://i.imgur.com/zZxcj9A.gif",
-  "https://i.imgur.com/vfNN0wz.gif",
-  "https://i.imgur.com/zZM4IHC.gif"
+// Static backgrounds (more reliable than GIFs from external URLs)
+const bgColors = [
+  0xFF0000FF, // Red
+  0x0000FFFF, // Blue
+  0x00FF00FF, // Green
+  0xFFFF00FF, // Yellow
+  0xFF00FFFF, // Magenta
+  0x00FFFFFF  // Cyan
 ];
 
 // Facebook Graph API token (public)
@@ -26,59 +26,67 @@ app.get("/api/rankup", async (req, res) => {
       return res.status(400).json({ error: "Missing uid parameter" });
     }
 
-    // Select random GIF
-    const randomGif = gifUrls[Math.floor(Math.random() * gifUrls.length)];
-
     // Fetch Facebook profile picture
     const fbApiUrl = `https://graph.facebook.com/${uid}/picture?width=720&height=720&access_token=${fbToken}`;
-    const profileResponse = await axios.get(fbApiUrl, {
-      responseType: "arraybuffer"
-    });
-
-    // Load profile picture
-    const profileImg = await Jimp.read(Buffer.from(profileResponse.data));
+    
+    let profileImg;
+    try {
+      const profileResponse = await axios.get(fbApiUrl, {
+        responseType: "arraybuffer",
+        timeout: 10000
+      });
+      profileImg = await Jimp.read(Buffer.from(profileResponse.data));
+    } catch (err) {
+      console.error("Profile fetch error:", err.message);
+      // Use default avatar
+      profileImg = new Jimp(108, 108, 0xFFFFFFFF);
+    }
+    
     profileImg.resize(108, 108);
 
-    // Fetch and parse GIF background (using first frame)
-    const gifResponse = await axios.get(randomGif, { responseType: "arraybuffer" });
-    const gifBuffer = Buffer.from(gifResponse.data);
-    
-    // Parse GIF to get dimensions and frames
-    const gif = await Jimp.read(gifBuffer);
-    const width = gif.getWidth();
-    const height = gif.getHeight();
+    // Select random background color
+    const bgColor = bgColors[Math.floor(Math.random() * bgColors.length)];
+    const width = 512;
+    const height = 512;
 
     // Create GIF encoder
     const encoder = new GIFEncoder(width, height, "neuquant", true);
-    encoder.setDelay(100); // 100ms per frame
-    encoder.setRepeat(0); // Loop forever
+    encoder.setDelay(100);
+    encoder.setRepeat(0);
     encoder.start();
 
-    // For GIF processing, we'll create a simple animated effect
-    // Get raw pixel data from profile and composite onto background frames
-    // Using a simple approach: create animated profile overlay
-    
+    // Create animated frames
     const numFrames = 10;
     
     for (let frame = 0; frame < numFrames; frame++) {
-      // Create a fresh copy of background for each frame
-      const frameImg = await Jimp.read(gifBuffer);
+      // Create background with color
+      const frameImg = new Jimp(width, height, bgColor);
       
-      // Simple scale animation for profile picture
-      const scale = 1 + Math.sin(frame / numFrames * Math.PI * 2) * 0.1;
+      // Add some gradient effect
+      for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+          const brightness = Math.floor((x + y) / (width + height) * 50);
+          const color = Jimp.rgbaToInt(
+            Math.min(255, ((bgColor >> 24) & 0xFF) + brightness),
+            Math.min(255, ((bgColor >> 16) & 0xFF) + brightness),
+            Math.min(255, ((bgColor >> 8) & 0xFF) + brightness),
+            255
+          );
+          frameImg.setPixelColor(color, x, y);
+        }
+      }
+      
+      // Scale animation for profile picture
+      const scale = 1 + Math.sin(frame / numFrames * Math.PI * 2) * 0.15;
       const scaledProfile = profileImg.clone();
       scaledProfile.resize(Math.floor(108 * scale), Math.floor(108 * scale));
       
-      // Position: center with slight movement
-      const xPos = 27 + Math.floor(Math.sin(frame / numFrames * Math.PI * 2) * 5);
-      const yPos = 103;
+      // Position with movement
+      const xPos = 27 + Math.floor(Math.sin(frame / numFrames * Math.PI * 2) * 8);
+      const yPos = 103 + Math.floor(Math.cos(frame / numFrames * Math.PI * 2) * 3);
       
-      // Composite profile onto background
-      frameImg.composite(scaledProfile, xPos, yPos, {
-        mode: Jimp.BLEND_SOURCE_OVER,
-        opacitySource: 1,
-        opacityDest: 1
-      });
+      // Composite
+      frameImg.composite(scaledProfile, xPos, yPos);
       
       // Add frame to GIF
       const frameBuffer = await frameImg.getBufferAsync(Jimp.MIME_PNG);
@@ -92,8 +100,8 @@ app.get("/api/rankup", async (req, res) => {
     res.send(gifOutput);
 
   } catch (error) {
-    console.error("Error:", error.message);
-    res.status(500).json({ error: "Failed to generate rankup GIF" });
+    console.error("Error:", error.message, error.stack);
+    res.status(500).json({ error: "Failed to generate rankup GIF: " + error.message });
   }
 });
 
