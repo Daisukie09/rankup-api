@@ -5,17 +5,7 @@ const GIFEncoder = require("gif-encoder-2");
 
 const app = express();
 
-// GIF backgrounds from imgur
-const gifUrls = [
-  "https://i.imgur.com/h6UbIMO.gif",
-  "https://i.imgur.com/vnnyLV8.gif",
-  "https://i.imgur.com/9Kq4ySX.gif",
-  "https://i.imgur.com/zZxcj9A.gif",
-  "https://i.imgur.com/vfNN0wz.gif",
-  "https://i.imgur.com/zZM4IHC.gif"
-];
-
-// Fallback colors if GIFs fail
+// Fallback colors
 const bgColors = [0xFF0000FF, 0x0000FFFF, 0x00FF00FF, 0xFFFF00FF, 0xFF00FFFF, 0x00FFFFFF];
 
 // Facebook Graph API token
@@ -29,35 +19,29 @@ app.get("/api/rankup", async (req, res) => {
       return res.status(400).json({ error: "Missing uid parameter" });
     }
 
+    console.log("Processing uid:", uid);
+
     // Fetch Facebook profile picture
-    const fbApiUrl = `https://graph.facebook.com/${uid}/picture?width=720&height=720&access_token=${fbToken}`;
-    
     let profileImg;
     try {
-      const profileResponse = await axios.get(fbApiUrl, { responseType: "arraybuffer", timeout: 10000 });
+      const profileResponse = await axios.get(
+        `https://graph.facebook.com/${uid}/picture?width=720&height=720&access_token=${fbToken}`,
+        { responseType: "arraybuffer", timeout: 15000 }
+      );
       profileImg = await Jimp.read(Buffer.from(profileResponse.data));
-    } catch {
-      profileImg = new Jimp(108, 108, 0xFFFFFFFF);
+      console.log("Profile loaded");
+    } catch (err) {
+      console.log("Profile fetch error:", err.message);
+      profileImg = new Jimp(200, 200, 0xFFFFFFFF);
     }
     
     profileImg.resize(108, 108);
 
-    // Try to fetch GIF background
-    const randomGif = gifUrls[Math.floor(Math.random() * gifUrls.length)];
-    let bgImg;
-    let useGifBg = false;
-    
-    try {
-      const gifResponse = await axios.get(randomGif, { responseType: "arraybuffer", timeout: 15000 });
-      bgImg = await Jimp.read(Buffer.from(gifResponse.data));
-      useGifBg = true;
-    } catch {
-      const bgColor = bgColors[Math.floor(Math.random() * bgColors.length)];
-      bgImg = new Jimp(512, 512, bgColor);
-    }
-
-    const width = bgImg.getWidth();
-    const height = bgImg.getHeight();
+    // Use colored background
+    const bgColor = bgColors[Math.floor(Math.random() * bgColors.length)];
+    const width = 512;
+    const height = 512;
+    const bgImg = new Jimp(width, height, bgColor);
 
     // Create GIF encoder
     const encoder = new GIFEncoder(width, height, "neuquant", true);
@@ -68,7 +52,7 @@ app.get("/api/rankup", async (req, res) => {
     const numFrames = 10;
     
     for (let frame = 0; frame < numFrames; frame++) {
-      let frameImg = bgImg.clone();
+      const frameImg = bgImg.clone();
       
       // Scale animation
       const scale = 1 + Math.sin(frame / numFrames * Math.PI * 2) * 0.15;
@@ -77,7 +61,7 @@ app.get("/api/rankup", async (req, res) => {
       
       // Position
       const xPos = 27 + Math.floor(Math.sin(frame / numFrames * Math.PI * 2) * 8);
-      const yPos = 103 + Math.floor(Math.cos(frame / numFrames * Math.PI * 2) * 3);
+      const yPos = 103;
       
       frameImg.composite(scaledProfile, xPos, yPos);
       
@@ -88,12 +72,13 @@ app.get("/api/rankup", async (req, res) => {
     encoder.finish();
     const gifOutput = encoder.out.getData();
 
+    console.log("GIF generated successfully");
     res.set("Content-Type", "image/gif");
     res.send(gifOutput);
 
   } catch (error) {
-    console.error("Error:", error.message);
-    res.status(500).json({ error: "Failed to generate rankup GIF" });
+    console.error("Error:", error.message, error.stack);
+    res.status(500).json({ error: "Failed: " + error.message });
   }
 });
 
