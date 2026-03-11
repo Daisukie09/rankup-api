@@ -1,0 +1,15 @@
+{
+  "name": "rankup-api",
+  "version": "1.0.0",
+  "description": "Rankup image API with Express and Canvas",
+  "main": "api/index.js",
+  "scripts": {
+    "start": "node api/index.js",
+    "dev": "node api/index.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "axios": "^1.6.0",
+    "canvas": "^2.11.2"
+  }
+}
