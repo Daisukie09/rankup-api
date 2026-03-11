@@ -1,19 +1,18 @@
 const express = require("express");
 const axios = require("axios");
 const Jimp = require("jimp");
-const fs = require("fs");
-const path = require("path");
+const GIFEncoder = require("gif-encoder-2");
 
 const app = express();
 
-// Random GIF backgrounds for rankup (using static images for jimp)
-const bgUrls = [
-  "https://i.imgur.com/h6UbIMO.png",
-  "https://i.imgur.com/vnnyLV8.png",
-  "https://i.imgur.com/9Kq4ySX.png",
-  "https://i.imgur.com/zZxcj9A.png",
-  "https://i.imgur.com/vfNN0wz.png",
-  "https://i.imgur.com/zZM4IHC.png"
+// GIF backgrounds for rankup
+const gifUrls = [
+  "https://i.imgur.com/h6UbIMO.gif",
+  "https://i.imgur.com/vnnyLV8.gif",
+  "https://i.imgur.com/9Kq4ySX.gif",
+  "https://i.imgur.com/zZxcj9A.gif",
+  "https://i.imgur.com/vfNN0wz.gif",
+  "https://i.imgur.com/zZM4IHC.gif"
 ];
 
 // Facebook Graph API token (public)
@@ -27,8 +26,8 @@ app.get("/api/rankup", async (req, res) => {
       return res.status(400).json({ error: "Missing uid parameter" });
     }
 
-    // Select random background
-    const randomBg = bgUrls[Math.floor(Math.random() * bgUrls.length)];
+    // Select random GIF
+    const randomGif = gifUrls[Math.floor(Math.random() * gifUrls.length)];
 
     // Fetch Facebook profile picture
     const fbApiUrl = `https://graph.facebook.com/${uid}/picture?width=720&height=720&access_token=${fbToken}`;
@@ -40,28 +39,61 @@ app.get("/api/rankup", async (req, res) => {
     const profileImg = await Jimp.read(Buffer.from(profileResponse.data));
     profileImg.resize(108, 108);
 
-    // Load background
-    const bgResponse = await axios.get(randomBg, { responseType: "arraybuffer" });
-    const bgImg = await Jimp.read(Buffer.from(bgResponse.data));
-    bgImg.resize(512, 512);
-
-    // Composite profile picture onto background
-    // Position: x=27.3, y=103 (centered at 27.3+54, 103+54 = 81.3, 157)
-    bgImg.composite(profileImg, 27, 103, {
-      mode: Jimp.BLEND_SOURCE_OVER,
-      opacitySource: 1,
-      opacityDest: 1
-    });
-
-    // Get buffer and send
-    const buffer = await bgImg.getBufferAsync(Jimp.MIME_PNG);
+    // Fetch and parse GIF background (using first frame)
+    const gifResponse = await axios.get(randomGif, { responseType: "arraybuffer" });
+    const gifBuffer = Buffer.from(gifResponse.data);
     
-    res.set("Content-Type", "image/png");
-    res.send(buffer);
+    // Parse GIF to get dimensions and frames
+    const gif = await Jimp.read(gifBuffer);
+    const width = gif.getWidth();
+    const height = gif.getHeight();
+
+    // Create GIF encoder
+    const encoder = new GIFEncoder(width, height, "neuquant", true);
+    encoder.setDelay(100); // 100ms per frame
+    encoder.setRepeat(0); // Loop forever
+    encoder.start();
+
+    // For GIF processing, we'll create a simple animated effect
+    // Get raw pixel data from profile and composite onto background frames
+    // Using a simple approach: create animated profile overlay
+    
+    const numFrames = 10;
+    
+    for (let frame = 0; frame < numFrames; frame++) {
+      // Create a fresh copy of background for each frame
+      const frameImg = await Jimp.read(gifBuffer);
+      
+      // Simple scale animation for profile picture
+      const scale = 1 + Math.sin(frame / numFrames * Math.PI * 2) * 0.1;
+      const scaledProfile = profileImg.clone();
+      scaledProfile.resize(Math.floor(108 * scale), Math.floor(108 * scale));
+      
+      // Position: center with slight movement
+      const xPos = 27 + Math.floor(Math.sin(frame / numFrames * Math.PI * 2) * 5);
+      const yPos = 103;
+      
+      // Composite profile onto background
+      frameImg.composite(scaledProfile, xPos, yPos, {
+        mode: Jimp.BLEND_SOURCE_OVER,
+        opacitySource: 1,
+        opacityDest: 1
+      });
+      
+      // Add frame to GIF
+      const frameBuffer = await frameImg.getBufferAsync(Jimp.MIME_PNG);
+      encoder.addFrame(frameBuffer);
+    }
+
+    encoder.finish();
+    const gifOutput = encoder.out.getData();
+
+    res.set("Content-Type", "image/gif");
+    res.send(gifOutput);
 
   } catch (error) {
     console.error("Error:", error.message);
-    res.status(500).json({ error: "Failed to generate rankup image" });
+    res.status(500).json({ error: "Failed to generate rankup GIF" });
   }
 });
 
