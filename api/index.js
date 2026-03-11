@@ -1,19 +1,19 @@
 const express = require("express");
 const axios = require("axios");
-const { loadImage, createCanvas } = require("canvas");
+const Jimp = require("jimp");
 const fs = require("fs");
 const path = require("path");
 
 const app = express();
 
-// Random GIF backgrounds for rankup
-const gifUrls = [
-  "https://i.imgur.com/h6UbIMO.gif",
-  "https://i.imgur.com/vnnyLV8.gif",
-  "https://i.imgur.com/9Kq4ySX.gif",
-  "https://i.imgur.com/zZxcj9A.gif",
-  "https://i.imgur.com/vfNN0wz.gif",
-  "https://i.imgur.com/zZM4IHC.gif"
+// Random GIF backgrounds for rankup (using static images for jimp)
+const bgUrls = [
+  "https://i.imgur.com/h6UbIMO.png",
+  "https://i.imgur.com/vnnyLV8.png",
+  "https://i.imgur.com/9Kq4ySX.png",
+  "https://i.imgur.com/zZxcj9A.png",
+  "https://i.imgur.com/vfNN0wz.png",
+  "https://i.imgur.com/zZM4IHC.png"
 ];
 
 // Facebook Graph API token (public)
@@ -27,8 +27,8 @@ app.get("/api/rankup", async (req, res) => {
       return res.status(400).json({ error: "Missing uid parameter" });
     }
 
-    // Select random GIF background
-    const randomGif = gifUrls[Math.floor(Math.random() * gifUrls.length)];
+    // Select random background
+    const randomBg = bgUrls[Math.floor(Math.random() * bgUrls.length)];
 
     // Fetch Facebook profile picture
     const fbApiUrl = `https://graph.facebook.com/${uid}/picture?width=720&height=720&access_token=${fbToken}`;
@@ -36,43 +36,28 @@ app.get("/api/rankup", async (req, res) => {
       responseType: "arraybuffer"
     });
 
-    // Save profile picture temporarily
-    const profilePath = path.join(__dirname, "temp_profile.png");
-    fs.writeFileSync(profilePath, Buffer.from(profileResponse.data, "utf-8"));
+    // Load profile picture
+    const profileImg = await Jimp.read(Buffer.from(profileResponse.data));
+    profileImg.resize(108, 108);
 
-    // Load images
-    const profileImg = await loadImage(profilePath);
-    const bgImg = await loadImage(randomGif);
+    // Load background
+    const bgResponse = await axios.get(randomBg, { responseType: "arraybuffer" });
+    const bgImg = await Jimp.read(Buffer.from(bgResponse.data));
+    bgImg.resize(512, 512);
 
-    // Create canvas
-    const canvas = createCanvas(bgImg.width, bgImg.height);
-    const ctx = canvas.getContext("2d");
-
-    // Draw background
-    ctx.drawImage(bgImg, 0, 0, canvas.width, canvas.height);
-
-    // Draw profile picture with rotation
-    ctx.save();
-    ctx.translate(27.3 + 54, 103 + 54); // Center of profile area
-    ctx.rotate(Math.PI * -25 / 180);
-    ctx.drawImage(profileImg, -54, -54, 108, 108);
-    ctx.restore();
-
-    // Save the result
-    const outputPath = path.join(__dirname, "rankup_output.png");
-    const buffer = canvas.toBuffer("image/png");
-    fs.writeFileSync(outputPath, buffer);
-
-    // Send the image
-    res.sendFile(outputPath, {}, (err) => {
-      // Cleanup temp files
-      try {
-        fs.unlinkSync(profilePath);
-        fs.unlinkSync(outputPath);
-      } catch (e) {
-        console.error("Cleanup error:", e);
-      }
+    // Composite profile picture onto background
+    // Position: x=27.3, y=103 (centered at 27.3+54, 103+54 = 81.3, 157)
+    bgImg.composite(profileImg, 27, 103, {
+      mode: Jimp.BLEND_SOURCE_OVER,
+      opacitySource: 1,
+      opacityDest: 1
     });
+
+    // Get buffer and send
+    const buffer = await bgImg.getBufferAsync(Jimp.MIME_PNG);
+    
+    res.set("Content-Type", "image/png");
+    res.send(buffer);
 
   } catch (error) {
     console.error("Error:", error.message);
