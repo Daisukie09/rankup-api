@@ -1,13 +1,9 @@
 const express = require("express");
 const app = express();
 const port = 8080;
-const fs = require("fs");
-const path = require("path");
 const axios = require("axios");
 const https = require("https");
 const { loadImage, createCanvas } = require("canvas");
-const { writeFile } = require("fs").promises;
-const os = require("os");
 
 app.get("/api/rankup", async function (req, res) {
   try {
@@ -28,19 +24,14 @@ app.get("/api/rankup", async function (req, res) {
 
     const randomGif = gifList[Math.floor(Math.random() * gifList.length)];
 
-    const overlayPath = path.join(os.tmpdir(), `overlay_${uid}.png`);
-    const gifPath = path.join(os.tmpdir(), `base_${uid}.gif`);
-    const outputPath = path.join(os.tmpdir(), `output_${uid}.gif`);
-
     // Fetch Facebook profile picture
     const profileResponse = await axios.get(
       `https://graph.facebook.com/${uid}/picture?width=720&height=720&access_token=6628568379|c1e620fa708a1d5696fb991c1bde5662`,
       { responseType: "arraybuffer" }
     );
-    fs.writeFileSync(overlayPath, Buffer.from(profileResponse.data));
+    const profileBuffer = Buffer.from(profileResponse.data);
 
-    // Download the GIF to a local file (avoids imgur redirect/rate-limit issues with canvagif's URL fetcher)
-    // Download the GIF to a local file using native https to bypass axios blocking by Imgur
+    // Download the GIF to a local buffer using native https to bypass axios blocking by Imgur
     const gifBuffer = await new Promise((resolve, reject) => {
       https.get(randomGif, {
         headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" }
@@ -60,16 +51,14 @@ app.get("/api/rankup", async function (req, res) {
       }).on("error", reject);
     });
     
-    fs.writeFileSync(gifPath, gifBuffer);
+    // Load the profile overlay image from memory
+    const overlayImage = await loadImage(profileBuffer);
 
-    // Load the profile overlay image
-    const overlayImage = await loadImage(overlayPath);
-
-    // Process GIF with canvagif — use local file path instead of URL
+    // Process GIF with canvagif — use buffer instead of URL/path
     const { Encoder, Decoder } = require("canvagif");
 
     const frames = await new Decoder()
-      .setUrl(gifPath)
+      .setUrl(gifBuffer) // canvagif accepts a Buffer here!
       .start();
 
     const { width, height } = frames[0].details;
@@ -99,10 +88,10 @@ app.get("/api/rankup", async function (req, res) {
     }
 
     const outGifBuffer = encoder.finish();
-    await writeFile(outputPath, outGifBuffer);
 
     console.log("Encode ended!");
-    res.sendFile(outputPath);
+    res.set("Content-Type", "image/gif");
+    res.send(outGifBuffer);
   } catch (error) {
     console.error("Error in /api/rankup:", error);
     res.status(500).json({ error: "Internal server error", details: error.message });
