@@ -1,16 +1,13 @@
 {
   "name": "rankup-api",
   "version": "1.0.0",
-  "description": "Rankup image API",
-  "main": "api/index.js",
   "scripts": {
-    "start": "node api/index.js",
-    "dev": "node api/index.js"
+    "vercel-build": "npm rebuild canvas --update-binary"
   },
   "dependencies": {
-    "express": "^4.18.2",
-    "axios": "^1.6.0",
+    "axios": "^1.6.8",
     "canvas": "^2.11.2",
-    "canvagif": "^0.1.14"
+    "canvagif": "^0.1.14",
+    "express": "^4.18.2"
   }
 }
